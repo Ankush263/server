@@ -1,24 +1,55 @@
-import jwt from 'jsonwebtoken';
 import { catchAsync } from '../utils/catchAsync';
-import { AppError } from '../utils/appError';
 import { ContactRepo } from '../repo/contact-repo';
 import dotenv from 'dotenv';
 import { NextFunction, Response, Request } from 'express';
-import bcrypt from 'bcryptjs';
-import validator from 'validator';
-import { ContactInterface } from '../repo/contact-repo';
 
 dotenv.config();
 
-export const createContact2 = catchAsync(
+export const createContact = catchAsync(
 	async (req: Request, res: Response, next: NextFunction) => {
 		const { phoneNumber, email } = req.body;
 
-		const existingContact: any = await ContactRepo.findByEmailOrPhone(
-			email,
-			phoneNumber
-		);
+		const returnDetails = (
+			primaryContact: {
+				id: number;
+				email: string;
+				phonenumber: string;
+			},
+			secondaryContacts: any
+		) => {
+			return res.json({
+				contact: {
+					primaryContactId: primaryContact.id,
+					emails: Array.from(
+						new Set(
+							[
+								primaryContact.email,
+								...secondaryContacts.map((contact: any) => contact.email),
+							].filter(Boolean)
+						)
+					),
+					phoneNumbers: Array.from(
+						new Set(
+							[
+								primaryContact.phonenumber,
+								...secondaryContacts.map((contact: any) => contact.phonenumber),
+							].filter(Boolean)
+						)
+					),
+					secondaryContactIds: secondaryContacts.map(
+						(contact: { id: number }) => contact.id
+					),
+				},
+			});
+		};
 
+		let primaryContact: any;
+		let secondaryContacts: any;
+		let existingContact: any;
+
+		existingContact = await ContactRepo.findByEmailOrPhone(email, phoneNumber);
+
+		// If there is no existing contact, then create a new one
 		if (existingContact.length === 0) {
 			const contact: any = await ContactRepo.create(
 				phoneNumber,
@@ -36,122 +67,73 @@ export const createContact2 = catchAsync(
 			});
 		}
 
-		let primaryContact = existingContact.find(
-			(contact: { linkprecedence: string }) =>
-				contact.linkprecedence === 'primary'
-		);
+		/*
+		If there are some existing contact
+			Check if that contact is Already exists or not
+				If yes, then return that contact 
+		*/
 
-		console.log('primaryContact: ', primaryContact);
-
-		if (!primaryContact) {
-			await ContactRepo.updateToPrimary(existingContact[0].id);
-		}
-
-		const secondaryContacts = existingContact.filter(
-			(contact: { id: number }) => contact.id !== primaryContact.id
-		);
-
-		await Promise.all(
-			secondaryContacts.map(async (contact: { id: number }) => {
-				await ContactRepo.updateToSecondery(primaryContact.id, contact.id);
-			})
-		);
-
-		return res.json({
-			contact: {
-				primaryContactId: primaryContact.id,
-				emails: [
-					primaryContact.email,
-					...secondaryContacts
-						.map((contact: { email: string }) => contact.email)
-						.filter(Boolean),
-				],
-				phoneNumbers: [
-					primaryContact.phonenumber,
-					...secondaryContacts
-						.map((contact: { phonenumber: string }) => contact.phonenumber)
-						.filter(Boolean),
-				],
-				secondaryContactIds: secondaryContacts.map(
-					(contact: { id: number }) => contact.id
-				),
-			},
-		});
-	}
-);
-
-export const createContact = catchAsync(
-	async (req: Request, res: Response, next: NextFunction) => {
-		const { phoneNumber, email } = req.body;
-
-		const existingContact: any = await ContactRepo.findByEmailOrPhone(
+		const exactContact: any = await ContactRepo.findByEmailAndPhone(
 			email,
 			phoneNumber
 		);
 
-		if (existingContact.length > 0) {
-			const contact: any = await ContactRepo.create(
-				phoneNumber,
-				email,
-				'secondery'
+		if (exactContact.length > 0) {
+			primaryContact = existingContact.find(
+				(contact: { linkprecedence: string }) =>
+					contact.linkprecedence === 'primary'
 			);
+
+			secondaryContacts = (
+				await ContactRepo.findByEmailOrPhone(email, phoneNumber)
+			).filter((contact: { id: number }) => contact.id !== primaryContact.id);
+
+			return returnDetails(primaryContact, secondaryContacts);
 		}
 
-		const contact: any = await ContactRepo.create(
-			phoneNumber,
-			email,
-			'primary'
+		primaryContact = existingContact.find(
+			(contact: { linkprecedence: string }) =>
+				contact.linkprecedence === 'primary'
 		);
 
-		return res.json({
-			contact: {
-				primaryContactId: contact.id,
-				emails: [contact.email],
-				phoneNumbers: [contact.phonenumber],
-				secondaryContactIds: [],
-			},
-		});
+		secondaryContacts = (
+			await ContactRepo.findByEmailOrPhone(email, phoneNumber)
+		).filter((contact: { id: number }) => contact.id !== primaryContact.id);
 
-		// let primaryContact = existingContact.find(
-		// 	(contact: { linkprecedence: string }) =>
-		// 		contact.linkprecedence === 'primary'
-		// );
+		if (secondaryContacts.length > 0) {
+			await Promise.all(
+				secondaryContacts.map(
+					async (contact: { id: number; linkprecedence: string }) => {
+						if (contact.linkprecedence === 'primary') {
+							await ContactRepo.updateToSecondery(
+								primaryContact.id,
+								contact.id
+							);
+						}
+					}
+				)
+			);
 
-		// console.log('primaryContact: ', primaryContact);
+			return returnDetails(primaryContact, secondaryContacts);
+		}
 
-		// if (!primaryContact) {
-		// 	await ContactRepo.updateToPrimary(existingContact[0].id);
-		// }
+		// Create a new secondary contact
 
-		// const secondaryContacts = existingContact.filter(
-		// 	(contact: { id: number }) => contact.id !== primaryContact.id
-		// );
+		const newSecondaryContact: any = await ContactRepo.create(
+			phoneNumber,
+			email,
+			'secondary'
+		);
 
-		// await Promise.all(
-		// 	secondaryContacts.map(async (contact: { id: number }) => {
-		// 		await ContactRepo.updateToSecondery(primaryContact.id, contact.id);
-		// 	})
-		// );
+		await ContactRepo.updateToSecondery(
+			primaryContact.id,
+			newSecondaryContact.id
+		);
 
-		// return res.json({
-		// 	contact: {
-		// 		primaryContactId: primaryContact.id,
-		// 		emails: [
-		// 			primaryContact.email,
-		// 			...secondaryContacts
-		// 				.map((contact: { email: string }) => contact.email)
-		// 				.filter(Boolean),
-		// 		],
-		// 		phoneNumbers: [
-		// 			primaryContact.phonenumber,
-		// 			...secondaryContacts
-		// 				.map((contact: { phonenumber: string }) => contact.phonenumber)
-		// 				.filter(Boolean),
-		// 		],
-		// 		secondaryContactIds: secondaryContacts.map(
-		// 			(contact: { id: number }) => contact.id
-		// 		),
-		// 	},
-		// });
+		secondaryContacts = (
+			await ContactRepo.findByEmailOrPhone(email, phoneNumber)
+		).filter((contact: { id: number }) => contact.id !== primaryContact.id);
+
+		return returnDetails(primaryContact, secondaryContacts);
 	}
 );
