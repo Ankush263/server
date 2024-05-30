@@ -1,12 +1,6 @@
 import pool from '../pool';
 import { toCamelCase } from './utils/to-camel-case';
 
-export interface ContactInterface {
-	id: number;
-	email: string;
-	phoneNumber: string;
-}
-
 export class ContactRepo {
 	static async create(
 		phoneNumber: string,
