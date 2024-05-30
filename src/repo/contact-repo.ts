@@ -34,6 +34,16 @@ export class ContactRepo {
 		return toCamelCase(rows);
 	}
 
+	static async findByEmailAndPhone(email: string, phoneNumber: string) {
+		const { rows } = await pool.query(
+			`
+				SELECT * FROM contact WHERE email IN ($1) AND phonenumber IN ($2)
+      `,
+			[email, phoneNumber]
+		);
+		return toCamelCase(rows);
+	}
+
 	static async updateToPrimary(id: number) {
 		const { rows } = await pool.query(
 			`
