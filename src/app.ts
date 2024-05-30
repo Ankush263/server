@@ -5,7 +5,6 @@ import cookieParser from 'cookie-parser';
 import bodyParser from 'body-parser';
 import { router } from '../src/routes/index';
 import { globalErrorHandler } from './middleware/global-error';
-import pool from './pool';
 
 const app: Express = express();
 
@@ -14,7 +13,7 @@ app.set('view engine', 'ejs');
 app.use(cookieParser());
 app.use(bodyParser.json());
 
-app.use('/api/v1', router);
+app.use('/identify', router);
 
 app.use(globalErrorHandler as express.ErrorRequestHandler);
 
